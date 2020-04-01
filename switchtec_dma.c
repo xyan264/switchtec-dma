@@ -232,7 +232,7 @@ static struct switchtec_dma_chan *to_switchtec_dma_chan(struct dma_chan *c)
 	return container_of(c, struct switchtec_dma_chan, dma_chan);
 }
 
-static struct device *to_dev(struct switchtec_dma_chan *swdma_chan)
+static struct device *to_chan_dev(struct switchtec_dma_chan *swdma_chan)
 {
 	return &swdma_chan->dma_chan.dev->device;
 }
@@ -425,7 +425,7 @@ static struct switchtec_dma_hw_ce * switchtec_dma_get_ce(
 
 static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 {
-	struct device *dev = to_dev(swdma_chan);
+	struct device *chan_dev = to_chan_dev(swdma_chan);
 	struct dmaengine_result res;
 	struct switchtec_dma_desc *desc;
 	static struct switchtec_dma_hw_ce *ce;
@@ -435,7 +435,7 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 	int i = 0;
 	int *p;
 
-	dev_dbg(dev, "%s\n", __FUNCTION__);
+	dev_dbg(chan_dev, "%s\n", __FUNCTION__);
 
 	spin_lock_bh(&swdma_chan->ring_lock);
 
@@ -448,32 +448,35 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 		cid = ce->cid;
 
 		if (cid != desc->hw->cid)
-			dev_emerg(dev, "CE cid 0x%x != desc->hw->cid 0x%x !!\n",
+			dev_emerg(chan_dev,
+				  "CE cid 0x%x != desc->hw->cid 0x%x !!\n",
 				  cid, desc->hw->cid);
 
 		res.residue = desc->orig_size - ce->cpl_byte_cnt;
 		p = (int *)ce;
 		for (i = 0; i < sizeof(*ce)/4; i++) {
-			dev_dbg(dev, "%s: CE DW%d: 0x%08x\n", __FUNCTION__, i,
+			dev_dbg(chan_dev, "%s: CE DW%d: 0x%08x\n", __FUNCTION__, i,
 				le32_to_cpu(*p));
 			p++;
 		}
 
 		if (!(ce->sts_code & SWITCHTEC_CE_SC_MASK)) {
-			dev_dbg(dev, "%s: CID 0x%04x Success\n", __FUNCTION__,
-				cid);
-			dev_dbg(dev, "%s: Requested byte count: 0x%08x\n",
+			dev_dbg(chan_dev,"%s: CID 0x%04x Success\n",
+				__FUNCTION__, cid);
+			dev_dbg(chan_dev, "%s: Requested byte count: 0x%08x\n",
 				__FUNCTION__, desc->orig_size);
-			dev_dbg(dev, "%s: Completed byte count: 0x%08x\n",
+			dev_dbg(chan_dev, "%s: Completed byte count: 0x%08x\n",
 				__FUNCTION__, ce->cpl_byte_cnt);
 			res.result = DMA_TRANS_NOERROR;
 		} else if (ce->sts_code & SWITCHTEC_CE_SC_D_RD_CTO) {
-			dev_dbg(dev, "%s: CID 0x%04x Read failed, SC 0x%08x\n",
+			dev_dbg(chan_dev,
+				"%s: CID 0x%04x Read failed, SC 0x%08x\n",
 				__FUNCTION__, cid,
 				(u32)(ce->sts_code & SWITCHTEC_CE_SC_MASK));
 			res.result = DMA_TRANS_READ_FAILED;
 		} else {
-			dev_dbg(dev, "%s: CID 0x%04x Write failed, SC 0x%08x\n",
+			dev_dbg(chan_dev,
+				"%s: CID 0x%04x Write failed, SC 0x%08x\n",
 				__FUNCTION__, cid,
 				(u32)(ce->sts_code & SWITCHTEC_CE_SC_MASK));
 			res.result = DMA_TRANS_WRITE_FAILED;
@@ -507,7 +510,7 @@ static void switchtec_dma_abort_desc(struct switchtec_dma_chan *swdma_chan)
 
 	while (CIRC_CNT(swdma_chan->head, swdma_chan->tail,
 			SWITCHTEC_DMA_SQ_SIZE) >= 1) {
-		dev_dbg(to_dev(swdma_chan), "%s: abort descriptor: 0x%x\n",
+		dev_dbg(to_chan_dev(swdma_chan), "%s: abort descriptor: 0x%x\n",
 			__FUNCTION__, swdma_chan->tail);
 		desc = switchtec_dma_get_desc(swdma_chan, swdma_chan->tail);
 
@@ -528,7 +531,7 @@ static void switchtec_dma_abort_desc(struct switchtec_dma_chan *swdma_chan)
 
 static void __switchtec_dma_chan_stop(struct switchtec_dma_chan *swdma_chan)
 {
-	dev_dbg(to_dev(swdma_chan), "%s\n", __FUNCTION__);
+	dev_dbg(to_chan_dev(swdma_chan), "%s\n", __FUNCTION__);
 
 	writeb(SWITCHTEC_CHAN_CTRL_HALT, &swdma_chan->mmio_chan_hw->ctrl);
 
@@ -540,16 +543,16 @@ static void __switchtec_dma_chan_stop(struct switchtec_dma_chan *swdma_chan)
 
 static void switchtec_dma_chan_stop(struct switchtec_dma_chan *swdma_chan)
 {
-	dev_dbg(to_dev(swdma_chan), "%s\n", __FUNCTION__);
-//	rcu_read_lock();
-//	if (!rcu_dereference(swdma_chan->swdma_dev->pdev)) {
-//		rcu_read_unlock();
-//		return;
-//	}
+	dev_dbg(to_chan_dev(swdma_chan), "%s\n", __FUNCTION__);
+	rcu_read_lock();
+	if (!rcu_dereference(swdma_chan->swdma_dev->pdev)) {
+		rcu_read_unlock();
+		return;
+	}
 
 	__switchtec_dma_chan_stop(swdma_chan);
 
-//	rcu_read_unlock();
+	rcu_read_unlock();
 }
 
 #if 0
@@ -589,10 +592,10 @@ static struct dma_async_tx_descriptor *switchtec_dma_prep_memcpy(
 	__acquires(swdma_chan->ring_lock)
 {
 	struct switchtec_dma_chan *swdma_chan = to_switchtec_dma_chan(c);
-	struct device *dev = to_dev(swdma_chan);
+	struct device *chan_dev = to_chan_dev(swdma_chan);
 	struct switchtec_dma_desc *swdma_desc;
 
-	dev_dbg(dev, "%s\n", __FUNCTION__);
+	dev_dbg(chan_dev, "%s\n", __FUNCTION__);
 
 	spin_lock_bh(&swdma_chan->ring_lock);
 	if (!swdma_chan->ring_active)
@@ -619,15 +622,15 @@ static struct dma_async_tx_descriptor *switchtec_dma_prep_memcpy(
 	swdma_desc->hw->cid = swdma_chan->cid;
 	swdma_desc->index = swdma_chan->head;
 
-	dev_dbg(dev, "%s: SE SADDR : 0x%08x_%08x\n",
+	dev_dbg(chan_dev, "%s: SE SADDR : 0x%08x_%08x\n",
 		__FUNCTION__,
 		swdma_desc->hw->saddr_widata_hi,
 		swdma_desc->hw->saddr_widata_lo);
-	dev_dbg(dev, "%s: SE DADDR : 0x%08x_%08x\n",
+	dev_dbg(chan_dev, "%s: SE DADDR : 0x%08x_%08x\n",
 		__FUNCTION__,
 		swdma_desc->hw->daddr_hi,
 		swdma_desc->hw->daddr_lo);
-	dev_dbg(dev, "%s: SE BCOUNT: 0x%08x\n",
+	dev_dbg(chan_dev, "%s: SE BCOUNT: 0x%08x\n",
 		__FUNCTION__, swdma_desc->hw->byte_cnt);
 
 	swdma_desc->orig_size = len;
@@ -680,7 +683,7 @@ static enum dma_status switchtec_dma_tx_status(struct dma_chan *chan,
 	struct switchtec_dma_chan *swdma_chan = to_switchtec_dma_chan(chan);
 	enum dma_status ret;
 
-	dev_dbg(to_dev(swdma_chan), "%s\n", __FUNCTION__);
+	dev_dbg(to_chan_dev(swdma_chan), "%s\n", __FUNCTION__);
 
 	ret = dma_cookie_status(chan, cookie, txstate);
 	if (ret == DMA_COMPLETE)
@@ -713,7 +716,7 @@ static void switchtec_dma_issue_pending(struct dma_chan *chan)
 	 * submisssion queue. Chip has the opposite define of head/tail
 	 * to the Linux kernel.
 	 */
-	dev_dbg(to_dev(swdma_chan), "%s, HEAD 0x%x\n",
+	dev_dbg(to_chan_dev(swdma_chan), "%s, HEAD 0x%x\n",
 		__FUNCTION__, swdma_chan->head);
 
 	writew(swdma_chan->head, &swdma_chan->mmio_chan_hw->sq_tail);
@@ -748,8 +751,6 @@ static irqreturn_t switchtec_dma_chan_status_isr(int irq, void *dma)
 	return IRQ_HANDLED;
 }
 
-void switchtec_kobject_del(struct switchtec_dma_dev *swdma_dev);
-
 static void switchtec_dma_release_work(struct work_struct *work)
 {
 	struct switchtec_dma_dev *swdma_dev =
@@ -758,7 +759,7 @@ static void switchtec_dma_release_work(struct work_struct *work)
 	dev_dbg(swdma_dev->dma_dev.dev, "%s\n", __FUNCTION__);
 
 	dma_async_device_unregister(&swdma_dev->dma_dev);
-	switchtec_kobject_del(swdma_dev);
+//	switchtec_kobject_del(swdma_dev);
 	put_device(swdma_dev->dma_dev.dev);
 //	devm_kfree(&swdma_dev->pdev->dev, swdma_dev);
 }
@@ -880,7 +881,7 @@ static int switchtec_dma_alloc_chan_resources(struct dma_chan *chan)
 	u32 perf_cfg;
 	int rc;
 
-	dev_dbg(to_dev(swdma_chan), "%s\n", __FUNCTION__);
+	dev_dbg(to_chan_dev(swdma_chan), "%s\n", __FUNCTION__);
 
 	rcu_read_lock();
 	if (!rcu_dereference(swdma_dev->pdev)) {
@@ -906,8 +907,6 @@ static int switchtec_dma_alloc_chan_resources(struct dma_chan *chan)
 
 	dma_cookie_init(chan);
 
-	rcu_read_unlock();
-
 	perf_cfg = readl(&swdma_chan->mmio_chan_fw->perf_cfg);
 
 	dev_info(&chan->dev->device, "Burst Size:  0x%x",
@@ -925,6 +924,7 @@ static int switchtec_dma_alloc_chan_resources(struct dma_chan *chan)
 	dev_info(&chan->dev->device, "MRRS:        0x%x",
 		 (perf_cfg >> PERF_MRRS_SHIFT) & PERF_MRRS_MASK);
 
+	rcu_read_unlock();
 	return SWITCHTEC_DMA_SQ_SIZE;
 }
 
@@ -935,7 +935,7 @@ static void switchtec_dma_free_chan_resources(struct dma_chan *chan)
 	u32 valid_en_se;
 	struct pci_dev *pdev;
 
-	dev_dbg(to_dev(swdma_chan), "%s\n", __FUNCTION__);
+	dev_dbg(to_chan_dev(swdma_chan), "%s\n", __FUNCTION__);
 
 	spin_lock_bh(&swdma_chan->ring_lock);
 	swdma_chan->ring_active = false;
@@ -968,6 +968,8 @@ static void switchtec_dma_free_chan_resources(struct dma_chan *chan)
 
 #define SWITCHTEC_DMA_CHAN_HW_REGS_SIZE 0x1000
 #define SWITCHTEC_DMA_CHAN_FW_REGS_SIZE 0x80
+
+struct kobj_type switchtec_ktype;
 
 static int switchtec_dma_chan_init(struct switchtec_dma_dev *swdma_dev, int i)
 {
@@ -1043,8 +1045,7 @@ static int switchtec_dma_chan_init(struct switchtec_dma_dev *swdma_dev, int i)
 	if (irq < 0)
 		return irq;
 
-	rc = devm_request_irq(&swdma_dev->pdev->dev, irq,
-			      switchtec_dma_isr, 0, KBUILD_MODNAME,
+	rc = devm_request_irq(dev, irq, switchtec_dma_isr, 0, KBUILD_MODNAME,
 			      swdma_chan);
 	if (rc)
 		return rc;
@@ -1059,7 +1060,31 @@ static int switchtec_dma_chan_init(struct switchtec_dma_dev *swdma_dev, int i)
 	chan->device = dma;
 	dma_cookie_init(chan);
 	list_add_tail(&chan->device_node, &dma->channels);
+
 	swdma_chan->initialized = 1;
+
+	return 0;
+}
+
+void switchtec_chan_kobject_del(struct switchtec_dma_chan *swdma_chan);
+
+static int switchtec_dma_chan_free(struct switchtec_dma_chan *swdma_chan)
+{
+	struct device *chan_dev = to_chan_dev(swdma_chan);
+	struct device *dev = &swdma_chan->swdma_dev->pdev->dev;
+	spin_lock_bh(&swdma_chan->ring_lock);
+	swdma_chan->ring_active = false;
+	swdma_chan->initialized = false;
+	spin_unlock_bh(&swdma_chan->ring_lock);
+
+	dev_dbg(chan_dev, "free_irq: 0x%x\n", swdma_chan->irq);
+	devm_free_irq(dev, swdma_chan->irq, swdma_chan);
+
+	switchtec_chan_kobject_del(swdma_chan);
+
+	__switchtec_dma_chan_stop(swdma_chan);
+
+	devm_kfree(dev, swdma_chan);
 
 	return 0;
 }
@@ -1067,21 +1092,11 @@ static int switchtec_dma_chan_init(struct switchtec_dma_dev *swdma_dev, int i)
 static int switchtec_dma_chans_release(struct switchtec_dma_dev *swdma_dev)
 {
 	int i;
-	struct switchtec_dma_chan *swdma_chan;
 	struct device *dev = &swdma_dev->pdev->dev;
 
-	for (i = 0; i < swdma_dev->dma_dev.chancnt; i++) {
-		swdma_chan = swdma_dev->swdma_chans[i];
+	for (i = 0; i < swdma_dev->dma_dev.chancnt; i++)
+		switchtec_dma_chan_free(swdma_dev->swdma_chans[i]);
 
-		spin_lock_bh(&swdma_chan->ring_lock);
-		swdma_chan->ring_active = false;
-		spin_unlock_bh(&swdma_chan->ring_lock);
-
-		switchtec_dma_abort_desc(swdma_chan);
-		switchtec_dma_free_desc(swdma_chan);
-		devm_free_irq(dev, swdma_chan->irq, swdma_chan);
-		devm_kfree(dev, swdma_chan);
-	}
 	devm_kfree(dev, swdma_dev->swdma_chans);
 
 	return 0;
@@ -1646,40 +1661,39 @@ struct kobj_type switchtec_ktype = {
 	.default_attrs = switchtec_attrs,
 };
 
+
+void switchtec_chan_kobject_add(struct switchtec_dma_chan *swdma_chan)
+{
+	struct kobject *parent;
+	int err;
+
+	parent = &swdma_chan->dma_chan.dev->device.kobj;
+	err = kobject_init_and_add(&swdma_chan->kobj, &switchtec_ktype,
+			parent, "perf");
+	if (err) {
+		dev_warn(to_chan_dev(swdma_chan),
+			 "sysfs init error (%d), continuing...\n", err);
+		kobject_put(&swdma_chan->kobj);
+	}
+}
+
 void switchtec_kobject_add(struct switchtec_dma_dev *swdma_dev)
 {
 	struct dma_device *dma = &swdma_dev->dma_dev;
 	struct switchtec_dma_chan *swdma_chan;
 	struct dma_chan *c;
-	struct kobject *parent;
-	int err;
 
 	list_for_each_entry(c, &dma->channels, device_node) {
 		swdma_chan = to_switchtec_dma_chan(c);
-		parent = &c->dev->device.kobj;
-		err = kobject_init_and_add(&swdma_chan->kobj, &switchtec_ktype,
-					   parent, "perf");
-		if (err) {
-			dev_warn(to_dev(swdma_chan),
-				 "sysfs init error (%d), continuing...\n", err);
-			kobject_put(&swdma_chan->kobj);
-		}
+		switchtec_chan_kobject_add(swdma_chan);
 	}
 }
 
-void switchtec_kobject_del(struct switchtec_dma_dev *swdma_dev)
+void switchtec_chan_kobject_del(struct switchtec_dma_chan *swdma_chan)
 {
-	struct dma_device *dma = &swdma_dev->dma_dev;
-	struct switchtec_dma_chan *swdma_chan;
-	struct dma_chan *c;
-
-	list_for_each_entry(c, &dma->channels, device_node) {
-		swdma_chan = to_switchtec_dma_chan(c);
-
-		if (swdma_chan->kobj.state_initialized) {
-			kobject_del(&swdma_chan->kobj);
-			kobject_put(&swdma_chan->kobj);
-		}
+	if (swdma_chan->kobj.state_initialized) {
+		kobject_del(&swdma_chan->kobj);
+		kobject_put(&swdma_chan->kobj);
 	}
 }
 
@@ -1729,8 +1743,7 @@ static int switchtec_dma_create(struct pci_dev *pdev)
 		goto err_exit;
 	}
 
-	rc = devm_request_irq(&swdma_dev->pdev->dev, irq,
-			      switchtec_dma_chan_error_isr, 0,
+	rc = devm_request_irq(dev, irq, switchtec_dma_chan_error_isr, 0,
 			      KBUILD_MODNAME, swdma_dev);
 	if (rc)
 		goto err_exit;
@@ -1746,9 +1759,8 @@ static int switchtec_dma_create(struct pci_dev *pdev)
 		goto err_exit;
 	}
 
-	rc = devm_request_irq(&swdma_dev->pdev->dev, irq,
-			      switchtec_dma_chan_status_isr, 0, KBUILD_MODNAME,
-			      swdma_dev);
+	rc = devm_request_irq(dev, irq, switchtec_dma_chan_status_isr, 0,
+			      KBUILD_MODNAME, swdma_dev);
 	if (rc)
 		goto err_exit;
 
@@ -1878,29 +1890,11 @@ static void switchtec_dma_remove(struct pci_dev *pdev)
 	tasklet_kill(&swdma_dev->chan_error_task);
 	tasklet_kill(&swdma_dev->chan_status_task);
 
-	devm_free_irq(dev, swdma_dev->chan_error_irq, swdma_dev);
-	devm_free_irq(dev, swdma_dev->chan_status_irq, swdma_dev);
-
 	rcu_assign_pointer(swdma_dev->pdev, NULL);
 	synchronize_rcu();
 
-//	for (i = 0; i < SWITCHTEC_DMA_SQ_SIZE; i++) {
-//		swdma_chan = swdma_dev->swdma_chans[i];
-//
-//		spin_lock_bh(&swdma_chan->ring_lock);
-//		swdma_chan->ring_active = false;
-//		spin_unlock_bh(&swdma_chan->ring_lock);
-//		switchtec_dma_abort_desc(swdma_chan);
-//	}
-
-//	__switchtec_dma_stop(swdma_dev);
-
-	swdma_dev->mmio_dmac_ver = NULL;
-	swdma_dev->mmio_dmac_cap = NULL;
-	swdma_dev->mmio_dmac_status = NULL;
-	swdma_dev->mmio_dmac_ctrl = NULL;
-	swdma_dev->mmio_chan_hw_all = NULL;
-	swdma_dev->mmio_chan_fw_all = NULL;
+	devm_free_irq(dev, swdma_dev->chan_error_irq, swdma_dev);
+	devm_free_irq(dev, swdma_dev->chan_status_irq, swdma_dev);
 
 	pci_free_irq_vectors(pdev);
 
@@ -1908,7 +1902,6 @@ static void switchtec_dma_remove(struct pci_dev *pdev)
 	switchtec_dma_put(swdma_dev);
 #else
 	dma_async_device_unregister(&swdma_dev->dma_dev);
-	switchtec_kobject_del(swdma_dev);
 	put_device(swdma_dev->dma_dev.dev);
 	devm_kfree(dev, swdma_dev);
 #endif
