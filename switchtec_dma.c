@@ -86,7 +86,7 @@ struct chan_hw_regs {
 enum {
 	PERF_BURST_SCALE = 0x1,
 	PERF_BURST_SIZE = 0x6,
-	PERF_INTERVAL = 0x1,
+	PERF_INTERVAL = 0x0,
 	PERF_MRRS = 0x3,
 	PERF_ARB_WEIGHT = 0x1,
 };
@@ -201,6 +201,7 @@ struct switchtec_dma_chan {
 	struct switchtec_dma_hw_ce *hw_cq;
 	dma_addr_t dma_addr_cq;
 
+	int run_out_se_cnt;
 	struct kobject config_kobj;
 	struct kobject pmon_kobj;
 };
@@ -408,8 +409,8 @@ static int enable_channel(struct switchtec_dma_chan *swdma_chan)
 	return 0;
 }
 
-#define SWITCHTEC_DMA_SQ_SIZE 1024
-#define SWITCHTEC_DMA_CQ_SIZE 1024
+#define SWITCHTEC_DMA_SQ_SIZE SZ_32K
+#define SWITCHTEC_DMA_CQ_SIZE SZ_32K
 
 #define SWITCHTEC_DMA_RING_SIZE SWITCHTEC_DMA_SQ_SIZE
 
@@ -500,8 +501,12 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 		swdma_chan->cq_tail &= SWITCHTEC_DMA_CQ_SIZE - 1;
 		writew(swdma_chan->cq_tail, &swdma_chan->mmio_chan_hw->cq_head);
 
-		if (se_idx != swdma_chan->tail)
+		if (se_idx != swdma_chan->tail) {
+			dev_info(to_chan_dev(swdma_chan),
+				 "Out of order CE! CE (cid: %x), SE (cid: %x)",
+				 cid, swdma_chan->tail);
 			continue;
+		}
 
 		do {
 			swdma_chan->tail++;
@@ -619,8 +624,10 @@ static struct dma_async_tx_descriptor *switchtec_dma_prep_memcpy(
 		goto err_unlock;
 
 	if (!CIRC_SPACE(swdma_chan->head, swdma_chan->tail,
-			SWITCHTEC_DMA_RING_SIZE))
+			SWITCHTEC_DMA_RING_SIZE)) {
+		swdma_chan->run_out_se_cnt++;
 		goto err_unlock;
+	}
 
 	if (len > SWITCHTEC_DESC_MAX_SIZE)
 		goto err_unlock;
@@ -829,6 +836,7 @@ static int switchtec_dma_alloc_desc(struct switchtec_dma_chan *swdma_chan)
 	struct switchtec_dma_dev *swdma_dev = swdma_chan->swdma_dev;
 	struct chan_fw_regs *chan_fw = swdma_chan->mmio_chan_fw;
 	size_t size;
+	u16 q_size;
 	struct switchtec_dma_desc *desc;
 	int i;
 
@@ -876,10 +884,11 @@ static int switchtec_dma_alloc_desc(struct switchtec_dma_chan *swdma_chan)
 	writel(lower_32_bits(swdma_chan->dma_addr_cq), &chan_fw->cq_base_lo);
 	writel(upper_32_bits(swdma_chan->dma_addr_cq), &chan_fw->cq_base_hi);
 
-	writel(cpu_to_le16(SWITCHTEC_DMA_SQ_SIZE),
-	       &swdma_chan->mmio_chan_fw->sq_size);
-	writel(cpu_to_le16(SWITCHTEC_DMA_CQ_SIZE),
-	       &swdma_chan->mmio_chan_fw->cq_size);
+	q_size = cpu_to_le16(SWITCHTEC_DMA_SQ_SIZE);
+	writew(q_size, &swdma_chan->mmio_chan_fw->sq_size);
+
+	q_size = cpu_to_le16(SWITCHTEC_DMA_CQ_SIZE);
+	writew(q_size, &swdma_chan->mmio_chan_fw->cq_size);
 
 	return 0;
 
