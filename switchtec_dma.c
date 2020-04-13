@@ -762,7 +762,6 @@ static void switchtec_dma_release_work(struct work_struct *work)
 	dma_async_device_unregister(&swdma_dev->dma_dev);
 //	switchtec_kobject_del(swdma_dev);
 	put_device(swdma_dev->dma_dev.dev);
-//	devm_kfree(&swdma_dev->pdev->dev, swdma_dev);
 }
 
 static void switchtec_dma_release(struct kref *ref)
@@ -1088,20 +1087,15 @@ static int switchtec_dma_chan_free(struct switchtec_dma_chan *swdma_chan)
 
 	__switchtec_dma_chan_stop(swdma_chan);
 
-	devm_kfree(dev, swdma_chan);
-
 	return 0;
 }
 
 static int switchtec_dma_chans_release(struct switchtec_dma_dev *swdma_dev)
 {
 	int i;
-	struct device *dev = &swdma_dev->pdev->dev;
 
 	for (i = 0; i < swdma_dev->dma_dev.chancnt; i++)
 		switchtec_dma_chan_free(swdma_dev->swdma_chans[i]);
-
-	devm_kfree(dev, swdma_dev->swdma_chans);
 
 	return 0;
 }
@@ -1894,9 +1888,6 @@ err_exit:
 	if (swdma_dev->chan_status_irq)
 		devm_free_irq(dev, swdma_dev->chan_status_irq, swdma_dev);
 
-	if (swdma_dev)
-		devm_kfree(dev, swdma_dev);
-
 	return rc;
 }
 
@@ -1963,7 +1954,6 @@ static void switchtec_dma_remove(struct pci_dev *pdev)
 #else
 	dma_async_device_unregister(&swdma_dev->dma_dev);
 	put_device(swdma_dev->dma_dev.dev);
-	devm_kfree(dev, swdma_dev);
 #endif
 
 	pci_info(pdev, "Switchtec DMA Channels Unregistered\n");
