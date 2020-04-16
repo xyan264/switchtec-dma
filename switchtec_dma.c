@@ -455,10 +455,8 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 		se_idx = cid & (SWITCHTEC_DMA_SQ_SIZE - 1);
 		desc = switchtec_dma_get_desc(swdma_chan, se_idx);
 
-		if (cid != desc->hw->cid)
-			dev_info(chan_dev,
-				 "CE cid 0x%x != desc->hw->cid 0x%x !!\n",
-				 cid, desc->hw->cid);
+		dev_info(to_chan_dev(swdma_chan),
+			 "Process SE, current               (cid: %x, cookie: %x)", cid, desc->txd.cookie);
 
 		res.residue = desc->orig_size - ce->cpl_byte_cnt;
 		p = (int *)ce;
@@ -517,6 +515,11 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 				break;
 		} while (CIRC_CNT(swdma_chan->head, swdma_chan->tail,
 				  SWITCHTEC_DMA_SQ_SIZE));
+
+		dev_info(to_chan_dev(swdma_chan),
+			 "Processed SE, next SE to process  (cid: %x)",
+			 swdma_chan->tail);
+
 	}
 	spin_unlock_bh(&swdma_chan->ring_lock);
 }
@@ -694,6 +697,9 @@ static dma_cookie_t switchtec_dma_tx_submit(
 
 	cookie = dma_cookie_assign(desc);
 
+	dev_info(to_chan_dev(swdma_chan), "%s: Submit SE with cookie: %x\n",
+			__FUNCTION__, cookie);
+
 	spin_unlock_bh(&swdma_chan->ring_lock);
 
 	return cookie;
@@ -742,6 +748,8 @@ static void switchtec_dma_issue_pending(struct dma_chan *chan)
 		__FUNCTION__, swdma_chan->head);
 
 	writew(swdma_chan->head, &swdma_chan->mmio_chan_hw->sq_tail);
+	dev_info(to_chan_dev(swdma_chan), "%s, Update SE HEAD 0x%x to firmware.\n",
+		 __FUNCTION__, swdma_chan->head);
 	rcu_read_unlock();
 }
 
