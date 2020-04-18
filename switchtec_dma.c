@@ -475,13 +475,13 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 				__FUNCTION__, ce->cpl_byte_cnt);
 			res.result = DMA_TRANS_NOERROR;
 		} else if (ce->sts_code & SWITCHTEC_CE_SC_D_RD_CTO) {
-			dev_dbg(chan_dev,
+			dev_err(chan_dev,
 				"%s: CID 0x%04x Read failed, SC 0x%08x\n",
 				__FUNCTION__, cid,
 				(u32)(ce->sts_code & SWITCHTEC_CE_SC_MASK));
 			res.result = DMA_TRANS_READ_FAILED;
 		} else {
-			dev_dbg(chan_dev,
+			dev_err(chan_dev,
 				"%s: CID 0x%04x Write failed, SC 0x%08x\n",
 				__FUNCTION__, cid,
 				(u32)(ce->sts_code & SWITCHTEC_CE_SC_MASK));
