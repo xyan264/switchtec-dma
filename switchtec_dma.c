@@ -488,11 +488,6 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 			res.result = DMA_TRANS_WRITE_FAILED;
 		}
 
-		dma_cookie_complete(&desc->txd);
-		dma_descriptor_unmap(&desc->txd);
-		dmaengine_desc_get_callback_invoke(&desc->txd, &res);
-		desc->txd.callback = NULL;
-		desc->txd.callback_result = NULL;
 		desc->completed = true;
 
 		swdma_chan->cq_tail++;
@@ -507,6 +502,13 @@ static void switchtec_dma_process_desc(struct switchtec_dma_chan *swdma_chan)
 		}
 
 		do {
+			dma_cookie_complete(&desc->txd);
+			dma_descriptor_unmap(&desc->txd);
+			dmaengine_desc_get_callback_invoke(&desc->txd, &res);
+			desc->txd.callback = NULL;
+			desc->txd.callback_result = NULL;
+			desc->completed = false;
+
 			swdma_chan->tail++;
 			swdma_chan->tail &= SWITCHTEC_DMA_SQ_SIZE - 1;
 			desc = switchtec_dma_get_desc(swdma_chan,
