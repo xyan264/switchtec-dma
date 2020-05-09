@@ -818,6 +818,7 @@ static irqreturn_t switchtec_dma_isr(int irq, void *chan)
 	return IRQ_HANDLED;
 }
 
+#if 0
 static irqreturn_t switchtec_dma_chan_error_isr(int irq, void *dma)
 {
 	struct switchtec_dma_dev *swdma_dev = dma;
@@ -835,6 +836,7 @@ static irqreturn_t switchtec_dma_chan_status_isr(int irq, void *dma)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 static void switchtec_dma_release_work(struct work_struct *work)
 {
@@ -1843,7 +1845,7 @@ static int switchtec_dma_create(struct pci_dev *pdev)
 	void __iomem *bar;
 	int chan_cnt;
 	int nr_vecs;
-	int irq;
+//	int irq;
 	int rc;
 
 	/*
@@ -1871,6 +1873,7 @@ static int switchtec_dma_create(struct pci_dev *pdev)
 		goto err_exit;
 	}
 
+#if 0
 	irq = readw(&swdma_dev->mmio_dmac_cap->chan_err_vec);
 	dev_dbg(dev, "Channel error irq vec 0x%x\n", irq);
 
@@ -1902,7 +1905,7 @@ static int switchtec_dma_create(struct pci_dev *pdev)
 		goto err_exit;
 
 	swdma_dev->chan_status_irq = irq;
-
+#endif
 	chan_cnt = switchtec_dma_get_chan_cnt(swdma_dev);
 	if (!chan_cnt) {
 		pci_err(swdma_dev->pdev, "No channel configured.\n");
