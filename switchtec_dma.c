@@ -2396,10 +2396,36 @@ static irqreturn_t switchtec_dma_fabric_event_isr(int irq, void *dma)
 {
 	struct switchtec_dma_dev *swdma_dev = dma;
 
-	tasklet_schedule(&swdma_dev->chan_status_task);
+	tasklet_schedule(&swdma_dev->fabric_event_task);
 
 	return IRQ_HANDLED;
 }
+
+int switchtec_fabric_register_notify(struct dma_device *dma_dev,
+				     struct notifier_block *nb)
+{
+	struct switchtec_dma_dev *swdma_dev;
+
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	swdma_dev = to_switchtec_dma(dma_dev);
+	return atomic_notifier_chain_register(&swdma_dev->notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(switchtec_fabric_register_notify);
+
+int switchtec_fabric_unregister_notify(struct dma_device *dma_dev,
+				       struct notifier_block *nb)
+{
+	struct switchtec_dma_dev *swdma_dev;
+
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	swdma_dev = to_switchtec_dma(dma_dev);
+	return atomic_notifier_chain_unregister(&swdma_dev->notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_notify);
 
 int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 {
