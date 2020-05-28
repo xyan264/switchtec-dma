@@ -2147,6 +2147,33 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 }
 EXPORT_SYMBOL(switchtec_fabric_register_buffer);
 
+int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
+				       u16 peer_hfid, u8 buf_index)
+{
+	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
+	int ret;
+
+	struct {
+		u16 hfid;
+		u8 buf_index;
+		u8 rsvd;
+	} req = {
+		.hfid = cpu_to_le16(peer_hfid),
+		.buf_index = buf_index,
+	};
+
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	ret = execute_cmd(swdma_dev, CMD_DEREGISTER_BUF, &req, sizeof(req),
+			  NULL, NULL);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+EXPORT_SYMBOL(switchtec_fabric_deregister_buffer);
+
 int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 {
 	struct device *dev = &swdma_dev->pdev->dev;
