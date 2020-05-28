@@ -1996,6 +1996,23 @@ bool is_fabric_dma(struct dma_device *dma)
 	return false;
 }
 
+struct dma_device *switchtec_fabric_get_dma_device(char *name)
+{
+	struct switchtec_dma_dev *d;
+	char dev_name[16];
+
+	list_for_each_entry(d, &dma_list, list) {
+		sprintf(dev_name, "dma%d", d->dma_dev.dev_id);
+		if (!strcmp(name, dev_name)) {
+			get_device(d->dma_dev.dev);
+			return &d->dma_dev;
+		}
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL(switchtec_fabric_get_dma_device);
+
 int execute_cmd(struct switchtec_dma_dev *swdma_dev, u32 cmd,
 		const void *input, size_t input_size, void *output,
 		size_t *output_size)
