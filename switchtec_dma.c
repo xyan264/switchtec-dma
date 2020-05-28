@@ -2013,6 +2013,17 @@ struct dma_device *switchtec_fabric_get_dma_device(char *name)
 }
 EXPORT_SYMBOL(switchtec_fabric_get_dma_device);
 
+int switchtec_fabric_put_dma_device(struct dma_device *dma_dev)
+{
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	put_device(dma_dev->dev);
+
+	return 0;
+}
+EXPORT_SYMBOL(switchtec_fabric_put_dma_device);
+
 int execute_cmd(struct switchtec_dma_dev *swdma_dev, u32 cmd,
 		const void *input, size_t input_size, void *output,
 		size_t *output_size)
