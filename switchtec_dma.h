@@ -135,4 +135,9 @@ int switchtec_fabric_register_notify(struct dma_device *dma_dev,
 				     struct notifier_block *nb);
 int switchtec_fabric_unregister_notify(struct dma_device *dma_dev,
 				       struct notifier_block *nb);
+
+struct dma_async_tx_descriptor *switchtec_fabric_dma_prep_memcpy(
+		struct dma_chan *c, u16 dst_fid, dma_addr_t dma_dst,
+		u16 src_fid, dma_addr_t dma_src, size_t len,
+		unsigned long flags);
 #endif
