@@ -2101,6 +2101,52 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 }
 EXPORT_SYMBOL(switchtec_fabric_get_host_ports);
 
+int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
+				     u8 buf_index, u64 buf_addr, u64 buf_size,
+				     int *buf_vec)
+{
+	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
+	size_t size;
+	int ret;
+
+	struct {
+		u16 hfid;
+		u8 buf_index;
+		u8 rsvd;
+		u32 addr_lo;
+		u32 addr_hi;
+		u32 size_lo;
+		u32 size_hi;
+	} req = {
+		.hfid = cpu_to_le16(peer_hfid),
+		.buf_index = buf_index,
+		.addr_lo = cpu_to_le32(lower_32_bits(buf_addr)),
+		.addr_hi = cpu_to_le32(upper_32_bits(buf_addr)),
+		.size_lo = cpu_to_le32(lower_32_bits(buf_size)),
+		.size_hi = cpu_to_le32(upper_32_bits(buf_size)),
+	};
+
+	struct {
+		u8 buf_index;
+		u8 rsvd;
+		u16 buf_vec;
+	} rsp;
+
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	size = sizeof(rsp);
+	ret = execute_cmd(swdma_dev, CMD_REGISTER_BUF, &req, sizeof(req),
+			  &rsp, &size);
+	if (ret < 0)
+		return ret;
+
+	*buf_vec = le16_to_cpu(rsp.buf_vec);
+
+	return 0;
+}
+EXPORT_SYMBOL(switchtec_fabric_register_buffer);
+
 int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 {
 	struct device *dev = &swdma_dev->pdev->dev;
