@@ -2080,9 +2080,12 @@ int execute_cmd(struct switchtec_dma_dev *swdma_dev, u32 cmd,
 	swdma_dev->cmd->status = CMD_STATUS_IDLE;
 	memset(swdma_dev->cmd->data, 0xFF, CMD_OUTPUT_SIZE);
 
+//	printk("input[0] is %x\n", *(int *)input);
+//	printk("input_size  is %zd\n", input_size);
 	memcpy_toio(&swdma_dev->mmio_fabric_cmd->input, input, input_size);
 	iowrite32(cmd, &swdma_dev->mmio_fabric_cmd->command);
 
+	printk("%x\n", readl(swdma_dev->mmio_fabric_cmd->input));
 	wait_timeout = jiffies + msecs_to_jiffies(CMD_TIMEOUT_MSECS);
 	do {
 		status = swdma_dev->cmd->status;
@@ -2223,12 +2226,22 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 	if (!dma_dev || !is_fabric_dma(dma_dev))
 		return -EINVAL;
 
+	printk("buf_addr is %llx\n", buf_addr);
+
+	printk("req.hfid is %hx\n", req.hfid);
+	printk("req.buf_index is %hhx\n", req.buf_index);
+	printk("req.addr_lo is %x\n", req.addr_lo);
+	printk("req.addr_hi is %x\n", req.addr_hi);
+	printk("req.size_lo is %x\n", req.size_lo);
+	printk("req.size_hi is %x\n", req.size_hi);
 	size = sizeof(rsp);
 	ret = execute_cmd(swdma_dev, CMD_REGISTER_BUF, &req, sizeof(req),
 			  &rsp, &size);
 	if (ret < 0)
 		return ret;
 
+	printk("rsp.buf_index is %hhx\n", rsp.buf_index);
+	printk("rsp.buf_vec is %hx\n", rsp.buf_vec);
 	if (rhi_handler) {
 		irq = le16_to_cpu(rsp.buf_vec);
 		irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
@@ -2552,6 +2565,13 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 		rc = -ENOMEM;
 		goto err_exit;
 	}
+	printk("cmd phys addr is %llx\n", (unsigned long long)swdma_dev->cmd);
+	printk("cmd dma addr is %llx\n", (unsigned long long)swdma_dev->cmd_dma_addr);
+
+	writel(cpu_to_le32(lower_32_bits(swdma_dev->cmd_dma_addr)),
+	       &swdma_dev->mmio_fabric_ctrl->cmd_dma_addr_lo);
+	writel(cpu_to_le32(upper_32_bits(swdma_dev->cmd_dma_addr)),
+	       &swdma_dev->mmio_fabric_ctrl->cmd_dma_addr_hi);
 
 	mutex_init(&swdma_dev->cmd_mutex);
 
@@ -2586,6 +2606,8 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 
 	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->notifier_list);
 
+	writel(cpu_to_le32(1), &swdma_dev->mmio_fabric_ctrl->cmd_event_enable);
+
 	return 0;
 
 err_exit:
@@ -2593,6 +2615,14 @@ err_exit:
 		devm_free_irq(dev, swdma_dev->event_irq, swdma_dev);
 
 	return rc;
+}
+
+int switchtec_dma_deinit_fabric(struct switchtec_dma_dev *swdma_dev)
+{
+	tasklet_kill(&swdma_dev->fabric_event_task);
+	devm_free_irq(&swdma_dev->pdev->dev, swdma_dev->event_irq, swdma_dev);
+
+	return 0;
 }
 
 static int switchtec_dma_create(struct pci_dev *pdev, bool is_fabric)
@@ -2796,11 +2826,17 @@ static void switchtec_dma_remove(struct pci_dev *pdev)
 	tasklet_kill(&swdma_dev->int_error_task);
 	tasklet_kill(&swdma_dev->chan_status_task);
 
+	if (swdma_dev->is_fabric)
+		tasklet_kill(&swdma_dev->fabric_event_task);
+
 	rcu_assign_pointer(swdma_dev->pdev, NULL);
 	synchronize_rcu();
 
 	devm_free_irq(dev, swdma_dev->int_error_irq, swdma_dev);
 	devm_free_irq(dev, swdma_dev->chan_status_irq, swdma_dev);
+
+	if (swdma_dev->is_fabric)
+		devm_free_irq(dev, swdma_dev->event_irq, swdma_dev);
 
 	pci_free_irq_vectors(pdev);
 
