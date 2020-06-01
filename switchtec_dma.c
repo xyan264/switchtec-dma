@@ -2196,11 +2196,13 @@ EXPORT_SYMBOL(switchtec_fabric_get_host_ports);
 
 int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 				     u8 buf_index, u64 buf_addr, u64 buf_size,
-				     int *buf_vec)
+				     irq_handler_t rhi_handler,
+				     const char *client_name)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
 	size_t size;
-	int ret;
+	int irq;
+	int ret = 0;
 
 	struct {
 		u16 hfid;
@@ -2234,9 +2236,17 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 	if (ret < 0)
 		return ret;
 
-	*buf_vec = le16_to_cpu(rsp.buf_vec);
+	if (rhi_handler) {
+		irq = le16_to_cpu(rsp.buf_vec);
+		irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
+		if (irq < 0)
+			return -ENXIO;
 
-	return 0;
+		ret = devm_request_irq(&swdma_dev->pdev->dev, irq, rhi_handler, 0,
+				       client_name, dma_dev);
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL(switchtec_fabric_register_buffer);
 

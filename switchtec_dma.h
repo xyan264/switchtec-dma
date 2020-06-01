@@ -123,7 +123,8 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 				    struct switchtec_host_port *ports);
 int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 				     u8 buf_index, u64 buf_addr, u64 buf_size,
-				     int *buf_vec);
+				     irq_handler_t rhi_handler,
+				     const char *client_name);
 int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
 				       u16 peer_hfid, u8 buf_index);
 int switchtec_fabric_get_peer_buffers(struct dma_device *dma_dev, u16 hfid,
