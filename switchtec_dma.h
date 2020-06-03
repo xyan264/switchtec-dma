@@ -121,12 +121,21 @@ int switchtec_fabric_get_pax_count(struct dma_device *dma_dev);
 int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 				    int port_num,
 				    struct switchtec_host_port *ports);
+int switchtec_fabric_register_rhi_notify(struct dma_device *dma_dev,
+					 struct notifier_block *nb);
+int switchtec_fabric_unregister_rhi_notify(struct dma_device *dma_dev,
+					   struct notifier_block *nb);
+//int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
+//				     u8 buf_index, u64 buf_addr, u64 buf_size,
+//				     irq_handler_t rhi_handler,
+//				     const char *client_name);
 int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 				     u8 buf_index, u64 buf_addr, u64 buf_size,
-				     irq_handler_t rhi_handler,
-				     const char *client_name);
+				     int *cookie);
+//int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
+//				       u16 peer_hfid, u8 buf_index);
 int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
-				       u16 peer_hfid, u8 buf_index);
+				       u16 peer_hfid, u8 buf_index, int cookie);
 int switchtec_fabric_get_peer_buffers(struct dma_device *dma_dev, u16 hfid,
 				      int buf_num,
 				      struct switchtec_buffer *bufs);

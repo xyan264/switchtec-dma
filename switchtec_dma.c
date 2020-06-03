@@ -278,6 +278,11 @@ struct fabric_event_queue {
 	struct swtichtec_fabric_event entries[];
 };
 
+struct rhi_cookie {
+	struct list_head list;
+	int cookie;
+};
+
 struct switchtec_dma_dev {
 	struct dma_device dma_dev;
 	struct pci_dev __rcu *pdev;
@@ -310,6 +315,11 @@ struct switchtec_dma_dev {
 	struct cmd_output *cmd;
 	dma_addr_t cmd_dma_addr;
 	int cmd_irq;
+//	spinlock_t rhi_list_lock;
+//	struct list_head rhi_list;
+//	int *rhi_bitmap;
+//	struct tasklet_struct fabric_rhi_task;
+	struct atomic_notifier_head rhi_notifier_list;
 
 	struct fabric_event_queue *eq;
 	dma_addr_t eq_dma_addr;
@@ -2085,7 +2095,6 @@ int execute_cmd(struct switchtec_dma_dev *swdma_dev, u32 cmd,
 	memcpy_toio(&swdma_dev->mmio_fabric_cmd->input, input, input_size);
 	iowrite32(cmd, &swdma_dev->mmio_fabric_cmd->command);
 
-	printk("%x\n", readl(swdma_dev->mmio_fabric_cmd->input));
 	wait_timeout = jiffies + msecs_to_jiffies(CMD_TIMEOUT_MSECS);
 	do {
 		status = swdma_dev->cmd->status;
@@ -2110,7 +2119,6 @@ int execute_cmd(struct switchtec_dma_dev *swdma_dev, u32 cmd,
 		size = *output_size > swdma_dev->cmd->output_size ?
 		       swdma_dev->cmd->output_size : *output_size;
 		memcpy(output, swdma_dev->cmd->data, size);
-
 		*output_size = size;
 	}
 
@@ -2190,12 +2198,87 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 }
 EXPORT_SYMBOL(switchtec_fabric_get_host_ports);
 
+//#define MAX_RHI_NUM 1024
+//int rhi_set_bit(struct switchtec_dma_dev *swdma_dev, int bit)
+//{
+//	int *p;
+//	int i;
+//
+//	if (bit >= MAX_RHI_NUM)
+//		return -EINVAL;
+//
+//	i = bit % (sizeof(int) * BITS_PER_BYTE);
+//	p = &swdma_dev->rhi_bitmap[bit/((sizeof(int) * BITS_PER_BYTE))];
+//
+//	set_bit(i, (void *)p);
+//
+//	return 0;
+//}
+//
+//int rhi_clear_bit(struct switchtec_dma_dev *swdma_dev, int bit)
+//{
+//	int *p;
+//	int i;
+//
+//	if (bit >= MAX_RHI_NUM)
+//		return -EINVAL;
+//
+//	i = bit % (sizeof(int) * BITS_PER_BYTE);
+//	p = &swdma_dev->rhi_bitmap[bit/((sizeof(int) * BITS_PER_BYTE))];
+//
+//	clear_bit(i, (void *)p);
+//
+//	return 0;
+//}
+//
+//int rhi_ffs(struct switchtec_dma_dev *swdma_dev)
+//{
+//	i = bit % (sizeof(int) * BITS_PER_BYTE);
+//	p = &swdma_dev->rhi_bitmap[bit/((sizeof(int) * BITS_PER_BYTE))];
+//
+//	clear_bit(i, (void *)p);
+//
+//	return 0;
+//}
+//
+//static void switchtec_dma_fabric_rhi_task(unsigned long data)
+//{
+//	struct switchtec_dma_dev *swdma_dev = (void *)data;
+//	struct rhi_cookie *r, *n;
+//
+//	list_for_each_entry_safe(r, n, &swdma_dev->rhi_list, list) {
+//		spin_lock(&swdma_dev->rhi_list_lock);
+//		list_del(&r->list);
+//		spin_unlock(&swdma_dev->rhi_list_lock);
+//
+//		atomic_notifier_call_chain(&swdma_dev->rhi_notifier_list,
+//					   r->cookie, NULL);
+//	}
+//}
+
+#if 1
+static irqreturn_t switchtec_dma_fabric_rhi_isr(int irq, void *dma)
+{
+	struct switchtec_dma_dev *swdma_dev = dma;
+
+//	spin_lock(&swdma_dev->rhi_list_lock);
+//	list_add_tail(&rhi->list, &swdma_dev->rhi_list);
+//	spin_unlock(&swdma_dev->rhi_list_lock);
+//
+//	tasklet_schedule(&swdma_dev->fabric_rhi_task);
+
+	printk("%s\n", __FUNCTION__);
+	atomic_notifier_call_chain(&swdma_dev->rhi_notifier_list, irq, NULL);
+
+	return IRQ_HANDLED;
+}
+#endif
 int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 				     u8 buf_index, u64 buf_addr, u64 buf_size,
-				     irq_handler_t rhi_handler,
-				     const char *client_name)
+				     int *cookie)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
+	struct rhi_cookie *rhi;
 	size_t size;
 	int irq;
 	int ret = 0;
@@ -2223,41 +2306,46 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 		u16 buf_vec;
 	} rsp;
 
-	if (!dma_dev || !is_fabric_dma(dma_dev))
+	if (!dma_dev || !is_fabric_dma(dma_dev) || !cookie)
 		return -EINVAL;
 
-	printk("buf_addr is %llx\n", buf_addr);
-
-	printk("req.hfid is %hx\n", req.hfid);
-	printk("req.buf_index is %hhx\n", req.buf_index);
-	printk("req.addr_lo is %x\n", req.addr_lo);
-	printk("req.addr_hi is %x\n", req.addr_hi);
-	printk("req.size_lo is %x\n", req.size_lo);
-	printk("req.size_hi is %x\n", req.size_hi);
+//	printk("buf_addr is %llx\n", buf_addr);
+//
+//	printk("req.hfid is %hx\n", req.hfid);
+//	printk("req.buf_index is %hhx\n", req.buf_index);
+//	printk("req.addr_lo is %x\n", req.addr_lo);
+//	printk("req.addr_hi is %x\n", req.addr_hi);
+//	printk("req.size_lo is %x\n", req.size_lo);
+//	printk("req.size_hi is %x\n", req.size_hi);
 	size = sizeof(rsp);
 	ret = execute_cmd(swdma_dev, CMD_REGISTER_BUF, &req, sizeof(req),
 			  &rsp, &size);
 	if (ret < 0)
 		return ret;
 
-	printk("rsp.buf_index is %hhx\n", rsp.buf_index);
-	printk("rsp.buf_vec is %hx\n", rsp.buf_vec);
-	if (rhi_handler) {
-		irq = le16_to_cpu(rsp.buf_vec);
-		irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
-		if (irq < 0)
-			return -ENXIO;
+//	printk("rsp.buf_index is %hhx\n", rsp.buf_index);
+//	printk("rsp.buf_vec is %hx\n", rsp.buf_vec);
+	irq = le16_to_cpu(rsp.buf_vec);
+	irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
+	if (irq < 0)
+		return -ENXIO;
 
-		ret = devm_request_irq(&swdma_dev->pdev->dev, irq, rhi_handler, 0,
-				       client_name, dma_dev);
-	}
+	*cookie = irq;
+
+	rhi = devm_kzalloc(&swdma_dev->pdev->dev, sizeof(*rhi), GFP_KERNEL);
+	if (!rhi)
+		return -ENOMEM;
+
+	ret = devm_request_irq(&swdma_dev->pdev->dev, irq,
+			       switchtec_dma_fabric_rhi_isr, 0, KBUILD_MODNAME,
+			       swdma_dev);
 
 	return ret;
 }
 EXPORT_SYMBOL(switchtec_fabric_register_buffer);
 
 int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
-				       u16 peer_hfid, u8 buf_index)
+				       u16 peer_hfid, u8 buf_index, int cookie)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
 	int ret;
@@ -2278,6 +2366,8 @@ int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
 			  NULL, NULL);
 	if (ret < 0)
 		return ret;
+
+	devm_free_irq(&swdma_dev->pdev->dev, cookie, swdma_dev);
 
 	return 0;
 }
@@ -2328,10 +2418,12 @@ int switchtec_fabric_get_peer_buffers(struct dma_device *dma_dev, u16 peer_hfid,
 		bufs[i].from_hfid = le16_to_cpu(rsp.bufs[i].hfid);
 		bufs[i].to_hfid = le16_to_cpu(swdma_dev->hfid);
 		bufs[i].index = rsp.bufs[i].index;
-		bufs[i].dma_addr = le32_to_cpu(rsp.bufs[i].addr_lo) < 32;
-		bufs[i].dma_addr |= le32_to_cpu(rsp.bufs[i].addr_hi);
-		bufs[i].dma_size = le32_to_cpu(rsp.bufs[i].size_lo) < 32;
-		bufs[i].dma_size |= le32_to_cpu(rsp.bufs[i].size_hi);
+		bufs[i].dma_addr = le32_to_cpu(rsp.bufs[i].addr_hi);
+		bufs[i].dma_addr <<= 32;
+		bufs[i].dma_addr |= le32_to_cpu(rsp.bufs[i].addr_lo);
+		bufs[i].dma_size = le32_to_cpu(rsp.bufs[i].size_hi);
+		bufs[i].dma_size <<= 32;
+		bufs[i].dma_size |= le32_to_cpu(rsp.bufs[i].size_lo);
 		bufs[i].local_dfid = le16_to_cpu(rsp.bufs[i].local_dfid);
 		bufs[i].remote_dfid = le16_to_cpu(rsp.bufs[i].remote_dfid);
 		bufs[i].local_rhi_dfid = le16_to_cpu(rsp.bufs[i].local_rhi_dfid);
@@ -2480,12 +2572,39 @@ static irqreturn_t switchtec_dma_fabric_event_isr(int irq, void *dma)
 	return IRQ_HANDLED;
 }
 
+int switchtec_fabric_register_rhi_notify(struct dma_device *dma_dev,
+					 struct notifier_block *nb)
+{
+	struct switchtec_dma_dev *swdma_dev;
+
+	if (!dma_dev || !is_fabric_dma(dma_dev))
+		return -EINVAL;
+
+	swdma_dev = to_switchtec_dma(dma_dev);
+	return atomic_notifier_chain_register(&swdma_dev->rhi_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(switchtec_fabric_register_rhi_notify);
+
+int switchtec_fabric_unregister_rhi_notify(struct dma_device *dma_dev,
+					   struct notifier_block *nb)
+{
+	struct switchtec_dma_dev *swdma_dev;
+
+	if (!dma_dev || !is_fabric_dma(dma_dev) || !nb)
+		return -EINVAL;
+
+	swdma_dev = to_switchtec_dma(dma_dev);
+	return atomic_notifier_chain_unregister(&swdma_dev->rhi_notifier_list,
+						nb);
+}
+EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_rhi_notify);
+
 int switchtec_fabric_register_notify(struct dma_device *dma_dev,
 				     struct notifier_block *nb)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
-	if (!dma_dev || !is_fabric_dma(dma_dev))
+	if (!dma_dev || !is_fabric_dma(dma_dev) || !nb)
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
@@ -2565,8 +2684,8 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 		rc = -ENOMEM;
 		goto err_exit;
 	}
-	printk("cmd phys addr is %llx\n", (unsigned long long)swdma_dev->cmd);
-	printk("cmd dma addr is %llx\n", (unsigned long long)swdma_dev->cmd_dma_addr);
+//	printk("cmd phys addr is %llx\n", (unsigned long long)swdma_dev->cmd);
+//	printk("cmd dma addr is %llx\n", (unsigned long long)swdma_dev->cmd_dma_addr);
 
 	writel(cpu_to_le32(lower_32_bits(swdma_dev->cmd_dma_addr)),
 	       &swdma_dev->mmio_fabric_ctrl->cmd_dma_addr_lo);
@@ -2574,6 +2693,17 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 	       &swdma_dev->mmio_fabric_ctrl->cmd_dma_addr_hi);
 
 	mutex_init(&swdma_dev->cmd_mutex);
+
+//	spin_lock_init(&swdma_dev->rhi_list_lock);
+//	INIT_LIST_HEAD(&swdma_dev->rhi_list);
+
+//	swdma_dev->rhi_bitmap = devm_kzalloc(dev, MAX_RHI_NUM/8, GFP_KERNEL);
+//	if (!swdma_dev->rhi_bitmap)
+//		return -ENOMEM;
+
+//	tasklet_init(&swdma_dev->fabric_rhi_task,
+//		     switchtec_dma_fabric_rhi_task,
+//		     (unsigned long)swdma_dev);
 
 	tasklet_init(&swdma_dev->fabric_event_task,
 		     switchtec_dma_fabric_event_task,
@@ -2604,6 +2734,7 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 		goto err_exit;
 	}
 
+	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->rhi_notifier_list);
 	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->notifier_list);
 
 	writel(cpu_to_le32(1), &swdma_dev->mmio_fabric_ctrl->cmd_event_enable);
@@ -2619,6 +2750,7 @@ err_exit:
 
 int switchtec_dma_deinit_fabric(struct switchtec_dma_dev *swdma_dev)
 {
+//	tasklet_kill(&swdma_dev->fabric_rhi_task);
 	tasklet_kill(&swdma_dev->fabric_event_task);
 	devm_free_irq(&swdma_dev->pdev->dev, swdma_dev->event_irq, swdma_dev);
 
@@ -2826,8 +2958,10 @@ static void switchtec_dma_remove(struct pci_dev *pdev)
 	tasklet_kill(&swdma_dev->int_error_task);
 	tasklet_kill(&swdma_dev->chan_status_task);
 
-	if (swdma_dev->is_fabric)
+	if (swdma_dev->is_fabric) {
+//		tasklet_kill(&swdma_dev->fabric_rhi_task);
 		tasklet_kill(&swdma_dev->fabric_event_task);
+	}
 
 	rcu_assign_pointer(swdma_dev->pdev, NULL);
 	synchronize_rcu();
