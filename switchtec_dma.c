@@ -2039,12 +2039,12 @@ bool is_fabric_dma(struct dma_device *dma)
 
 bool is_switchtec_fabric(struct dma_chan *chan)
 {
-       struct switchtec_dma_chan *c;
-       list_for_each_entry(c, &chan_list, list)
-               if (chan == &c->dma_chan)
-                       return true;
+	struct switchtec_dma_chan *c;
+	list_for_each_entry(c, &chan_list, list)
+		if (chan == &c->dma_chan)
+			return c->is_fabric;
 
-       return false;
+	return false;
 }
 EXPORT_SYMBOL(is_switchtec_fabric);
 
@@ -2401,6 +2401,7 @@ int switchtec_fabric_get_peer_buffers(struct dma_device *dma_dev, u16 peer_hfid,
 
 	struct {
 		u8 buf_num;
+		u32 rsvd;
 		struct buffer_entry bufs[SWITCHTEC_BUF_NUM_PER_HOST_PORT];
 	} rsp;
 
