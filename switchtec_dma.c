@@ -883,6 +883,8 @@ struct dma_async_tx_descriptor *__switchtec_dma_prep_wimm_data(
 	desc->hw->saddr_widata_hi = cpu_to_le32(upper_32_bits(data));
 	desc->hw->byte_cnt = cpu_to_le32(len);
 	desc->hw->tlp_setting = 0;
+	desc->hw->dfid_connid = cpu_to_le16(dst_dfid);
+	desc->hw->sfid = cpu_to_le16(src_dfid);
 	swdma_chan->cid &= SWITCHTEC_SE_CID_MASK;
 	desc->hw->cid = cpu_to_le16(swdma_chan->cid++);
 	desc->index = swdma_chan->head;
@@ -893,6 +895,8 @@ struct dma_async_tx_descriptor *__switchtec_dma_prep_wimm_data(
 	dev_dbg(chan_dev, "SE DADDR    : 0x%08x_%08x\n",
 		desc->hw->daddr_hi, desc->hw->daddr_lo);
 	dev_dbg(chan_dev, "SE BCOUNT   : 0x%08x\n", desc->hw->byte_cnt);
+	dev_dbg(chan_dev, "SE SRC DFID : 0x%04x\n", desc->hw->sfid);
+	dev_dbg(chan_dev, "SE DST DFID : 0x%04x\n", desc->hw->dfid_connid);
 
 	desc->orig_size = len;
 
