@@ -2430,6 +2430,7 @@ int switchtec_fabric_get_peer_buffers(struct dma_device *dma_dev, u16 peer_hfid,
 		bufs[i].dma_size = le32_to_cpu(rsp.bufs[i].size_hi);
 		bufs[i].dma_size <<= 32;
 		bufs[i].dma_size |= le32_to_cpu(rsp.bufs[i].size_lo);
+		bufs[i].rhi_index = le16_to_cpu(rsp.bufs[i].rhi_index);
 		bufs[i].local_dfid = le16_to_cpu(rsp.bufs[i].local_dfid);
 		bufs[i].remote_dfid = le16_to_cpu(rsp.bufs[i].remote_dfid);
 		bufs[i].local_rhi_dfid = le16_to_cpu(rsp.bufs[i].local_rhi_dfid);
