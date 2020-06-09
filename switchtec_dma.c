@@ -2176,8 +2176,11 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 		u8 phys_pid;
 		u8 host_port_num;
 		u32 rsvd;
-		struct switchtec_host_port host_ports[
-			SWITCHTEC_HOST_PORT_NUM_PER_PAX];
+		struct {
+			u16 hfid;
+			u8 phys_pid;
+			u8 link_state;
+		} host_ports[SWITCHTEC_HOST_PORT_NUM_PER_PAX];
 	} rsp;
 
 	if (!dma_dev || !is_fabric_dma(dma_dev))
@@ -2194,7 +2197,7 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 
 	for (i = 0; i < rtn_port_num; i++) {
 		ports[i].hfid = le16_to_cpu(rsp.host_ports[i].hfid);
-		ports[i].pax_id = rsp.host_ports[i].pax_id;
+		ports[i].pax_id = rsp.pax_id;
 		ports[i].phys_pid = rsp.host_ports[i].phys_pid;
 		ports[i].link_state = rsp.host_ports[i].link_state;
 	}
