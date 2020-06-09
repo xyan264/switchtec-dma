@@ -2475,7 +2475,7 @@ int switchtec_fabric_get_buffers(struct dma_device *dma_dev, int buf_num,
 				 struct switchtec_buffer *bufs)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
-	u8 local_buf_index = 0;
+	u16 local_buf_index = 0;
 	size_t size;
 	int i, j;
 	int rtn_buf_num = 0;
@@ -2509,18 +2509,20 @@ int switchtec_fabric_get_buffers(struct dma_device *dma_dev, int buf_num,
 			remain_buf_num = rtn_buf_num;
 		}
 
-		j = 0;
-		for (; i < rsp.rtn_buf_num + rsp.buf_index; i++, j++) {
+		for (j = 0; j < rsp.rtn_buf_num; i++, j++) {
 			struct switchtec_buffer *buf = &bufs[i];
 			struct buffer_entry *rsp_buf = &rsp.bufs[j];
 
 			buf->from_hfid = le16_to_cpu(swdma_dev->hfid);
 			buf->to_hfid = le16_to_cpu(rsp_buf->hfid);
 			buf->index = rsp_buf->index;
-			buf->dma_addr = le32_to_cpu(rsp_buf->addr_lo) < 32;
-			buf->dma_addr |= le32_to_cpu(rsp_buf->addr_hi);
-			buf->dma_size = le32_to_cpu(rsp_buf->size_lo) < 32;
-			buf->dma_size |= le32_to_cpu(rsp_buf->size_hi);
+			buf->dma_addr = le32_to_cpu(rsp_buf->addr_hi);
+			buf->dma_addr <<= 32;
+			buf->dma_addr |= le32_to_cpu(rsp_buf->addr_lo);
+			buf->dma_size = le32_to_cpu(rsp_buf->size_hi);
+			buf->dma_size <<= 32;
+			buf->dma_size |= le32_to_cpu(rsp_buf->size_lo);
+			buf->rhi_index = le16_to_cpu(rsp_buf->rhi_index);
 			buf->local_dfid = le16_to_cpu(rsp_buf->local_dfid);
 			buf->remote_dfid = le16_to_cpu(rsp_buf->remote_dfid);
 			buf->local_rhi_dfid =
@@ -2530,7 +2532,7 @@ int switchtec_fabric_get_buffers(struct dma_device *dma_dev, int buf_num,
 
 			local_buf_index++;
 
-			if (--remain_buf_num)
+			if (--remain_buf_num == 0)
 				break;
 		}
 	} while (remain_buf_num);
