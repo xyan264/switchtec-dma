@@ -276,7 +276,7 @@ struct cmd_output{
 struct fabric_event_queue {
 	u32 head;
 	u32 rsvd[3];
-	struct swtichtec_fabric_event entries[];
+	struct switchtec_fabric_event entries[];
 };
 
 struct rhi_cookie {
@@ -327,7 +327,7 @@ struct switchtec_dma_dev {
 	int eq_tail;
 	int event_irq;
 	struct tasklet_struct fabric_event_task;
-	struct atomic_notifier_head notifier_list;
+	struct atomic_notifier_head event_notifier_list;
 
 	struct kref ref;
 	struct work_struct release_work;
@@ -2541,8 +2541,8 @@ int switchtec_fabric_get_buffers(struct dma_device *dma_dev, int buf_num,
 }
 EXPORT_SYMBOL(switchtec_fabric_get_buffers);
 
-int switchtec_fabric_notify(struct dma_device *dma_dev,
-			    struct swtichtec_fabric_event *event)
+int switchtec_fabric_event_notify(struct dma_device *dma_dev,
+				  struct switchtec_fabric_event *event)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
@@ -2550,26 +2550,36 @@ int switchtec_fabric_notify(struct dma_device *dma_dev,
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
-	return atomic_notifier_call_chain(&swdma_dev->notifier_list, 0, event);
+	return atomic_notifier_call_chain(&swdma_dev->event_notifier_list,
+					  event->type, event);
 }
 
 static void switchtec_dma_fabric_event_task(unsigned long data)
 {
 	struct switchtec_dma_dev *swdma_dev = (void *)data;
-	struct swtichtec_fabric_event *event;
+	struct switchtec_fabric_event *event;
 	int cnt;
+
+	printk("%s, eq->head is %x\n", __FUNCTION__, swdma_dev->eq->head);
+	printk("%s, swdma_dev->eq_tail is %x\n", __FUNCTION__, swdma_dev->eq_tail);
 
 	while ((cnt = CIRC_CNT(swdma_dev->eq->head, swdma_dev->eq_tail,
 			       SWITCHTEC_DMA_EQ_SIZE)) > 0) {
 		event = &swdma_dev->eq->entries[swdma_dev->eq_tail];
+		printk("event->reg_buf_data.hfid is %x\n",
+		       event->reg_buf_data.hfid);
+		printk("event->reg_buf_data.rhi_index is %x\n",
+		       event->reg_buf_data.rhi_index);
+		printk("event->reg_buf_data.index is %x\n",
+		       event->reg_buf_data.index);
 
-		switchtec_fabric_notify(&swdma_dev->dma_dev, event);
+		switchtec_fabric_event_notify(&swdma_dev->dma_dev, event);
 
 		swdma_dev->eq_tail++;
 		swdma_dev->eq_tail &= SWITCHTEC_DMA_EQ_SIZE - 1;
 	}
 
-	writeq(swdma_dev->eq_tail,
+	writel(swdma_dev->eq_tail,
 	       &swdma_dev->mmio_fabric_ctrl->event_queue_tail);
 
 	return;
@@ -2579,6 +2589,7 @@ static irqreturn_t switchtec_dma_fabric_event_isr(int irq, void *dma)
 {
 	struct switchtec_dma_dev *swdma_dev = dma;
 
+	printk("%s\n", __FUNCTION__);
 	tasklet_schedule(&swdma_dev->fabric_event_task);
 
 	return IRQ_HANDLED;
@@ -2611,8 +2622,8 @@ int switchtec_fabric_unregister_rhi_notify(struct dma_device *dma_dev,
 }
 EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_rhi_notify);
 
-int switchtec_fabric_register_notify(struct dma_device *dma_dev,
-				     struct notifier_block *nb)
+int switchtec_fabric_register_event_notify(struct dma_device *dma_dev,
+					   struct notifier_block *nb)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
@@ -2620,12 +2631,13 @@ int switchtec_fabric_register_notify(struct dma_device *dma_dev,
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
-	return atomic_notifier_chain_register(&swdma_dev->notifier_list, nb);
+	return atomic_notifier_chain_register(&swdma_dev->event_notifier_list,
+					      nb);
 }
-EXPORT_SYMBOL_GPL(switchtec_fabric_register_notify);
+EXPORT_SYMBOL_GPL(switchtec_fabric_register_event_notify);
 
-int switchtec_fabric_unregister_notify(struct dma_device *dma_dev,
-				       struct notifier_block *nb)
+int switchtec_fabric_unregister_event_notify(struct dma_device *dma_dev,
+					     struct notifier_block *nb)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
@@ -2633,9 +2645,10 @@ int switchtec_fabric_unregister_notify(struct dma_device *dma_dev,
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
-	return atomic_notifier_chain_unregister(&swdma_dev->notifier_list, nb);
+	return atomic_notifier_chain_unregister(&swdma_dev->event_notifier_list,
+						nb);
 }
-EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_notify);
+EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_event_notify);
 
 struct dma_async_tx_descriptor *switchtec_fabric_dma_prep_memcpy(
 		struct dma_chan *c, u16 dst_fid, dma_addr_t dma_dst,
@@ -2738,7 +2751,7 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 
 	swdma_dev->eq_tail = 0;
 
-	size = SWITCHTEC_DMA_EQ_SIZE * sizeof(struct swtichtec_fabric_event) +
+	size = SWITCHTEC_DMA_EQ_SIZE * sizeof(struct switchtec_fabric_event) +
 		offsetof(struct fabric_event_queue, entries);
 	swdma_dev->eq = dmam_alloc_coherent(dev, size, &swdma_dev->eq_dma_addr,
 					    GFP_KERNEL);
@@ -2747,8 +2760,14 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 		goto err_exit;
 	}
 
+	printk("swdma_dev->eq_dma_addr is %llx\n", swdma_dev->eq_dma_addr);
+	writel(cpu_to_le32(lower_32_bits(swdma_dev->eq_dma_addr)),
+	       &swdma_dev->mmio_fabric_ctrl->event_dma_addr_lo);
+	writel(cpu_to_le32(upper_32_bits(swdma_dev->eq_dma_addr)),
+	       &swdma_dev->mmio_fabric_ctrl->event_dma_addr_hi);
+
 	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->rhi_notifier_list);
-	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->notifier_list);
+	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->event_notifier_list);
 
 	writel(cpu_to_le32(1), &swdma_dev->mmio_fabric_ctrl->cmd_event_enable);
 
