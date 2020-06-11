@@ -110,7 +110,7 @@ struct switchtec_fabric_event {
 			u8 rsvd;
 		} dereg_buf_data;
 
-		u32 data[2];
+		u32 data[3];
 	};
 };
 
