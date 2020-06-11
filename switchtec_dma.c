@@ -311,6 +311,7 @@ struct switchtec_dma_dev {
 	struct cmd_output *cmd;
 	dma_addr_t cmd_dma_addr;
 	int cmd_irq;
+	struct atomic_notifier_head rhi_notifier_list;
 
 	struct fabric_event_queue *eq;
 	dma_addr_t eq_dma_addr;
@@ -2195,10 +2196,18 @@ int switchtec_fabric_get_host_ports(struct dma_device *dma_dev, u8 pax_id,
 }
 EXPORT_SYMBOL(switchtec_fabric_get_host_ports);
 
+static irqreturn_t switchtec_dma_fabric_rhi_isr(int irq, void *dma)
+{
+	struct switchtec_dma_dev *swdma_dev = dma;
+
+	atomic_notifier_call_chain(&swdma_dev->rhi_notifier_list, irq, NULL);
+
+	return IRQ_HANDLED;
+}
+
 int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 				     u8 buf_index, u64 buf_addr, u64 buf_size,
-				     irq_handler_t rhi_handler,
-				     const char *client_name)
+				     int *cookie)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
 	size_t size;
@@ -2228,7 +2237,7 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 		u16 buf_vec;
 	} rsp;
 
-	if (!dma_dev || !is_fabric_dma(dma_dev))
+	if (!dma_dev || !is_fabric_dma(dma_dev) || !cookie)
 		return -EINVAL;
 
 	size = sizeof(rsp);
@@ -2237,22 +2246,23 @@ int switchtec_fabric_register_buffer(struct dma_device *dma_dev, u16 peer_hfid,
 	if (ret < 0)
 		return ret;
 
-	if (rhi_handler) {
-		irq = le16_to_cpu(rsp.buf_vec);
-		irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
-		if (irq < 0)
-			return -ENXIO;
+	irq = le16_to_cpu(rsp.buf_vec);
+	irq = pci_irq_vector(swdma_dev->pdev, le16_to_cpu(rsp.buf_vec));
+	if (irq < 0)
+		return -ENXIO;
 
-		ret = devm_request_irq(&swdma_dev->pdev->dev, irq, rhi_handler, 0,
-				       client_name, dma_dev);
-	}
+	*cookie = irq;
+
+	ret = devm_request_irq(&swdma_dev->pdev->dev, irq,
+			       switchtec_dma_fabric_rhi_isr, 0, KBUILD_MODNAME,
+			       swdma_dev);
 
 	return ret;
 }
 EXPORT_SYMBOL(switchtec_fabric_register_buffer);
 
-int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
-				       u16 peer_hfid, u8 buf_index)
+int switchtec_fabric_unregister_buffer(struct dma_device *dma_dev,
+				       u16 peer_hfid, u8 buf_index, int cookie)
 {
 	struct switchtec_dma_dev *swdma_dev = to_switchtec_dma(dma_dev);
 	int ret;
@@ -2274,9 +2284,11 @@ int switchtec_fabric_deregister_buffer(struct dma_device *dma_dev,
 	if (ret < 0)
 		return ret;
 
+	devm_free_irq(&swdma_dev->pdev->dev, cookie, swdma_dev);
+
 	return 0;
 }
-EXPORT_SYMBOL(switchtec_fabric_deregister_buffer);
+EXPORT_SYMBOL(switchtec_fabric_unregister_buffer);
 
 struct buffer_entry {
 	u16 hfid;
@@ -2486,8 +2498,8 @@ static irqreturn_t switchtec_dma_fabric_event_isr(int irq, void *dma)
 	return IRQ_HANDLED;
 }
 
-int switchtec_fabric_register_notify(struct dma_device *dma_dev,
-				     struct notifier_block *nb)
+int switchtec_fabric_register_rhi_notify(struct dma_device *dma_dev,
+					 struct notifier_block *nb)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
@@ -2495,22 +2507,23 @@ int switchtec_fabric_register_notify(struct dma_device *dma_dev,
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
-	return atomic_notifier_chain_register(&swdma_dev->notifier_list, nb);
+	return atomic_notifier_chain_register(&swdma_dev->rhi_notifier_list, nb);
 }
-EXPORT_SYMBOL_GPL(switchtec_fabric_register_notify);
+EXPORT_SYMBOL_GPL(switchtec_fabric_register_rhi_notify);
 
-int switchtec_fabric_unregister_notify(struct dma_device *dma_dev,
-				       struct notifier_block *nb)
+int switchtec_fabric_unregister_rhi_notify(struct dma_device *dma_dev,
+					   struct notifier_block *nb)
 {
 	struct switchtec_dma_dev *swdma_dev;
 
-	if (!dma_dev || !is_fabric_dma(dma_dev))
+	if (!dma_dev || !is_fabric_dma(dma_dev) || !nb)
 		return -EINVAL;
 
 	swdma_dev = to_switchtec_dma(dma_dev);
-	return atomic_notifier_chain_unregister(&swdma_dev->notifier_list, nb);
+	return atomic_notifier_chain_unregister(&swdma_dev->rhi_notifier_list,
+						nb);
 }
-EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_notify);
+EXPORT_SYMBOL_GPL(switchtec_fabric_unregister_rhi_notify);
 
 struct dma_async_tx_descriptor *switchtec_fabric_dma_prep_memcpy(
 		struct dma_chan *c, u16 dst_fid, dma_addr_t dma_dst,
@@ -2604,6 +2617,7 @@ int switchtec_dma_init_fabric(struct switchtec_dma_dev *swdma_dev)
 		goto err_exit;
 	}
 
+	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->rhi_notifier_list);
 	ATOMIC_INIT_NOTIFIER_HEAD(&swdma_dev->notifier_list);
 
 	return 0;
