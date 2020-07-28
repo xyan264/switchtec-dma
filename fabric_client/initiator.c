@@ -230,10 +230,6 @@ static int __init dma_client_init(void)
 			ret = -ETIME;
 			goto err_free_resource;
 		}
-		/*
-		 * To work around a bug in the firmware
-		 */
-		mdelay(100);
 	} while(1);
 
 	spd_buf = &peer_bufs[SCRATCHPAD_BUFFER_INDEX];
